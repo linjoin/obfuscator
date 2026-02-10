@@ -18,16 +18,16 @@ jobs:
    - name: Install dependencies
      run: |
        sudo apt-get update
-       sudo apt-get install -y ocaml opam git cmake clang make
+       sudo apt-get install -y ocaml opam git cmake clang make m4
        opam init --disable-sandboxing -y
        eval $(opam env)
-       opam install cil -y
+       opam install cil ocamlfind -y || opam install https://github.com/goblint/cil/archive/refs/tags/1.8.2.tar.gz -y
    
    - name: Build Tigress
      run: |
        git clone https://github.com/csdlsi/tigress.git
        cd tigress
-       ./configure
+       ./configure || ./configure --with-cil=$(opam var prefix)/lib/cil
        make
    
    - name: Obfuscate code
