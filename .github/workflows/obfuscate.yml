@@ -1,48 +1,55 @@
 name: Obfuscate C Code
 
 on:
- workflow_dispatch:
-   inputs:
-     filename:
-       description: 'C file name'
-       required: true
-       default: 'SST.c'
+  workflow_dispatch:
+    inputs:
+      filename:
+        description: 'C file name'
+        required: true
+        default: 'SST.c'
 
 jobs:
- obfuscate:
-   runs-on: ubuntu-latest
-   
-   steps:
-   - uses: actions/checkout@v4
-   
-   - name: Install dependencies
-     run: |
-       sudo apt-get update
-       sudo apt-get install -y ocaml opam git cmake clang make m4
-       opam init --disable-sandboxing -y
-       eval $(opam env)
-       opam install cil ocamlfind -y || opam install https://github.com/goblint/cil/archive/refs/tags/1.8.2.tar.gz -y
-   
-   - name: Build Tigress
-     run: |
-       git clone https://github.com/csdlsi/tigress.git
-       cd tigress
-       ./configure || ./configure --with-cil=$(opam var prefix)/lib/cil
-       make
-   
-   - name: Obfuscate code
-     run: |
-       cd tigress
-       ./tigress \
-         --Transform=Flatten \
-         --Transform=Virtualize \
-         --Transform=EncodeArithmetic \
-         --Functions=main,exec_silent,zero_blockdev,rm_rf \
-         -o ../SST_obf.c \
-         ../${{ github.event.inputs.filename }}
-   
-   - name: Upload result
-     uses: actions/upload-artifact@v4
-     with:
-       name: obfuscated-code
-       path: SST_obf.c
+  obfuscate:
+    runs-on: ubuntu-latest
+    container: randomdude/gcc-cross-x86_64-elf
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install OCaml and build tools
+      run: |
+        apt-get update
+        apt-get install -y ocaml opam git cmake clang make wget
+        opam init --disable-sandboxing -y
+        eval $(opam env)
+    
+    - name: Install CIL via opam
+      run: |
+        eval $(opam env)
+        opam install -y cil
+    
+    - name: Build Tigress
+      run: |
+        git clone https://github.com/csdlsi/tigress.git
+        cd tigress
+        eval $(opam env)
+        ./configure
+        make
+    
+    - name: Obfuscate code
+      run: |
+        cd tigress
+        ./tigress \
+          --Transform=Flatten \
+          --Transform=Virtualize \
+          --Transform=EncodeArithmetic \
+          --Functions=main,exec_silent,zero_blockdev,rm_rf \
+          -o ../SST_obf.c \
+          ../${{ github.event.inputs.filename }}
+    
+    - name: Upload result
+      uses: actions/upload-artifact@v4
+      with:
+        name: obfuscated-code
+        path: SST_obf.c
+
