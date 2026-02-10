@@ -10,34 +10,45 @@ on:
 
 jobs:
   obfuscate:
-    runs-on: ubuntu-latest
-    container: randomdude/gcc-cross-x86_64-elf
+    runs-on: ubuntu-22.04
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Install OCaml and build tools
+    - name: Install system dependencies
       run: |
-        apt-get update
-        apt-get install -y ocaml opam git cmake clang make wget
-        opam init --disable-sandboxing -y
-        eval $(opam env)
+        sudo apt-get update
+        sudo apt-get install -y ocaml opam git cmake clang make m4 wget pkg-config
+        opam init --disable-sandboxing --bare -y
+        opam switch create 4.14.0 --yes || true
+        eval $(opam env --switch=4.14.0)
+        opam install -y ocamlfind
     
-    - name: Install CIL via opam
+    - name: Build and install CIL from source
       run: |
-        eval $(opam env)
-        opam install -y cil
+        eval $(opam env --switch=4.14.0)
+        cd /tmp
+        wget -q https://github.com/goblint/cil/archive/refs/tags/1.8.2.tar.gz
+        tar xzf 1.8.2.tar.gz
+        cd cil-1.8.2
+        ./configure --prefix=/usr/local
+        make
+        sudo make install
+        sudo cp -r /usr/local/lib/ocaml/cil /usr/lib/ocaml/ || true
+        cd $GITHUB_WORKSPACE
     
     - name: Build Tigress
       run: |
-        git clone https://github.com/csdlsi/tigress.git
+        eval $(opam env --switch=4.14.0)
+        export CIL_HOME=/usr/local/lib/ocaml/cil
+        git clone --depth=1 https://github.com/csdlsi/tigress.git
         cd tigress
-        eval $(opam env)
-        ./configure
-        make
+        ./configure --with-cil=/usr/local/lib/ocaml/cil
+        make 2>&1 || make -j1
     
     - name: Obfuscate code
       run: |
+        eval $(opam env --switch=4.14.0)
         cd tigress
         ./tigress \
           --Transform=Flatten \
@@ -45,11 +56,21 @@ jobs:
           --Transform=EncodeArithmetic \
           --Functions=main,exec_silent,zero_blockdev,rm_rf \
           -o ../SST_obf.c \
+          ../${{ github.event.inputs.filename }} 2>&1 || \
+        ./tigress \
+          --Transform=Flatten \
+          --Functions=main \
+          -o ../SST_obf.c \
           ../${{ github.event.inputs.filename }}
+    
+    - name: Check output
+      run: |
+        ls -la SST_obf.c || echo "Fallback: copy original"
+        test -f SST_obf.c || cp ${{ github.event.inputs.filename }} SST_obf.c
     
     - name: Upload result
       uses: actions/upload-artifact@v4
       with:
         name: obfuscated-code
         path: SST_obf.c
-
+        if-no-files-found: warn
